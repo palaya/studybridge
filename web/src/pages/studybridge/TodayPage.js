@@ -1,274 +1,502 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Card, Progress, Button, Spin, Typography, Tag, Space, Empty } from 'antd';
-import { MessageOutlined, CheckCircleOutlined, FireOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Input,
+  Button,
+  Typography,
+  Badge,
+  Card,
+  Spin,
+  Space,
+  Collapse,
+  Tag,
+  Switch,
+} from 'antd';
+import {
+  SendOutlined,
+  RobotOutlined,
+  CloseCircleFilled,
+} from '@ant-design/icons';
 import { api } from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
 import { designTokens } from '../../designTokens';
-import ReadingLabMascotSvg from './ReadingLabMascotSvg';
 import TutorSessionMascotSvg from './TutorSessionMascotSvg';
+import UserAvatarSvg from './UserAvatarSvg';
+import './TutorPage.css';
 
-const { Title, Text } = Typography;
+const AttachIcon = () => (
+  <svg viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+    <path d="M317.76384 959.04a319.872 319.872 0 0 1-225.088-91.264A293.824 293.824 0 0 1 0.00384 652.16c0-84.16 35.52-170.752 92.672-225.92l350.72-338.56c16.32-15.68 50.816-5.12 66.176 9.6 10.432 10.112 17.984 28.096 17.984 42.688 0 4.352-0.64 8.32-1.92 11.84l2.688 1.024-8.704 8.576L169.41184 499.2c-42.176 40.704-66.368 95.36-66.368 149.76 0 52.608 22.976 102.592 66.368 144.512 91.264 88.064 231.424 71.04 305.088 0l394.432-380.672c32.256-31.168 49.344-67.136 49.344-104 0-37.056-17.536-74.368-49.344-105.088-56.896-54.912-131.328-48.576-199.296 17.024L313.73184 565.568c-13.312 12.8-20.672 29.312-20.672 46.4 0 15.04 5.888 29.44 16.192 39.36 26.496 25.6 66.112 17.92 89.088-4.288l329.152-317.568 0.96 0.832c17.728-8.832 46.272 0.96 59.84 14.08 10.368 9.984 17.92 27.904 17.984 42.56a28.8 28.8 0 0 1-8.064 21.376l-324.288 312.96c-114.56 110.656-205.952 55.488-250.24 12.8-15.104-14.656-50.368-54.848-50.368-112.448 0-44.928 21.376-88.384 63.616-129.152l68.032-67.008L594.05184 146.56c107.008-103.232 254.848-110.4 351.616-17.024a246.08 246.08 0 0 1 76.48 178.24 246.08 246.08 0 0 1-76.48 178.304l-395.52 381.76c-58.432 56.32-143.936 91.264-232.384 91.264z" />
+  </svg>
+);
 
-/**
- * @param {Error & { status?: number; code?: string }} e
- * @returns {string}
- */
-function formatMissionLoadError(e) {
-  const status = e?.status;
-  const code = e?.code;
-  if (status === 401 || code === 'Unauthorized') {
-    return '未登录或令牌无效。请刷新页面；若无效，请确认后端已启动且 /api/auth/register-anonymous 可访问。';
-  }
-  if (code === 'mission_fetch_failed') {
-    return '服务器生成任务失败（常见：数据库未迁移、用户记录缺失）。请查看 studybridge-server 控制台日志。';
-  }
-  const msg = e?.message || '';
-  if (
-    msg.includes('Failed to fetch') ||
-    msg.includes('NetworkError') ||
-    e?.name === 'TypeError'
-  ) {
-    return '无法连接 API。请在本机运行 studybridge-server（默认端口 4000），并确认未把 REACT_APP_API_URL 设为 localhost（手机/局域网访问时会失败）。';
-  }
-  return msg || '请求失败';
-}
+const { Title, Text, Paragraph } = Typography;
 
-function taskLeadingVisual(taskType, cfg) {
-  if (taskType === 'vocab') {
-    return <ReadingLabMascotSvg />;
-  }
-  if (taskType === 'tutor') {
-    return <TutorSessionMascotSvg />;
-  }
-  if (cfg.icon) {
-    return cfg.icon;
-  }
-  return <MessageOutlined style={{ color: designTokens.color.primary }} />;
-}
+export default function TutorPage() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [photoAnalysis, setPhotoAnalysis] = useState(null);
+  const [showChinese, setShowChinese] = useState(true);
+  const [pendingImages, setPendingImages] = useState([]); // [{ file, previewUrl }]
+  const listRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-const TASK_CONFIG = {
-  vocab: {
-    title: 'Reading & Language',
-    desc: 'Short passage, AI chat, words from the text, and a quick exercise',
-    link: '/language',
-    btnText: 'Open Lab',
-    btnColor: '#fd6c5b',
-  },
-  tutor: {
-    title: 'Tutor Session',
-    desc: 'Chat with your AI tutor (3+ turns)',
-    link: '/tutor',
-    btnText: 'Start Chat',
-    btnColor: '#fec601',
-  },
-};
+  const userTurns = messages.filter((m) => m.role === 'user').length;
+  const turnsNeeded = 3;
 
-export default function TodayPage() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(null);
-  const { refreshUser } = useAuth();
-  const navigate = useNavigate();
+  useEffect(() => {
+    api.trackEvent('page_view', { page: 'tutor' });
+  }, []);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    setLoading(true);
-    try {
-      const res = await api.getTodayMission();
-      setData(res);
-      if (res.user) {
-        refreshUser({ xp: res.user.xp, streak: res.user.streak });
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
+
+  const runTutor = useCallback(
+    async (history, opts = {}) => {
+      const res = await api.tutorMessage(history, {
+        photoAnalysis: opts.photoAnalysis ?? photoAnalysis,
+        userIntent: opts.userIntent,
+      });
+      return res;
+    },
+    [photoAnalysis],
+  );
+
+  const addPendingFiles = (files) => {
+    const newItems = [];
+    for (const file of files) {
+      if (file && file.type?.startsWith('image/')) {
+        newItems.push({ file, previewUrl: URL.createObjectURL(file) });
       }
+    }
+    if (newItems.length) setPendingImages((prev) => [...prev, ...newItems]);
+  };
+
+  const removePendingImage = (index) => {
+    setPendingImages((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const clearPendingImages = () => {
+    pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+    setPendingImages([]);
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const onCameraChange = (e) => {
+    const files = e.target.files;
+    if (files?.length) addPendingFiles(Array.from(files));
+  };
+
+  const onFileChange = (e) => {
+    const files = e.target.files;
+    if (files?.length) addPendingFiles(Array.from(files));
+  };
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    const hasImages = pendingImages.length > 0;
+    if (!text && !hasImages) return;
+    if (loading) return;
+
+    const userContent = hasImages
+      ? `📷 ${text || 'I uploaded a photo of my homework.'}`
+      : text;
+    const imageUrls = pendingImages.map((img) => img.previewUrl);
+    const updated = [...messages, { role: 'user', content: userContent, images: imageUrls }];
+    setMessages(updated);
+    setInput('');
+    const imageFiles = pendingImages.map((img) => img.file);
+    setPendingImages([]);
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setLoading(true);
+
+    try {
+      let analysis = photoAnalysis;
+      if (imageFiles.length > 0) {
+        // Upload first image for analysis (API expects single photo)
+        const { result } = await api.uploadPhoto(imageFiles[0]);
+        analysis = result;
+        setPhotoAnalysis(result);
+        api.trackEvent('photo_analyzed_in_tutor', { imageCount: imageFiles.length });
+      }
+      const historyForApi = updated.map((m) => ({ role: m.role, content: m.content }));
+      const res = await runTutor(historyForApi, { photoAnalysis: analysis });
+      setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
     } catch (e) {
-      console.error(e);
-      setData(null);
-      setLoadError(formatMissionLoadError(e));
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Sorry, I had trouble responding. Please try again. (${e.message})`,
+        },
+      ]);
     } finally {
       setLoading(false);
     }
-  }, [refreshUser]);
+  };
 
-  useEffect(() => {
-    load();
-    api.trackEvent('page_view', { page: 'today' });
-  }, [load]);
+  const handleQuickIntent = async (userIntent, userLine) => {
+    if (loading) return;
+    const next = [...messages, { role: 'user', content: userLine }];
+    setMessages(next);
+    setLoading(true);
+    try {
+      const res = await runTutor(next, { userIntent });
+      setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Sorry, I had trouble responding. (${e.message})`,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', paddingTop: 80 }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
 
-  if (!data) {
-    return (
-      <Empty
-        description={
-          <Space direction="vertical" size="small" style={{ maxWidth: 360 }}>
-            <Text>无法加载今日任务</Text>
-            {loadError ? (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {loadError}
-              </Text>
-            ) : null}
-          </Space>
-        }
-      >
-        <Button type="primary" onClick={() => load()}>
-          重试
-        </Button>
-      </Empty>
-    );
-  }
-
-  const { mission, user, rules } = data;
-  const overallPercent = Math.round((mission.completionRate || 0) * 100);
+  const bubbleAiStyle = {
+    background: designTokens.color.bg.container,
+    border: '2px solid #E3E4E4',
+  };
+  const bubbleUserStyle = {
+    background: 'rgba(0, 179, 251, 0.05)',
+    color: designTokens.color.text.primary,
+    border: '2px solid #00B3FB',
+  };
+  const avatarAiStyle = {
+    background: '#e6f7ff',
+    color: designTokens.color.primary,
+  };
+  const avatarUserStyle = {
+    background: 'transparent',
+  };
 
   return (
-    <div>
+    <div className="tutor-page">
       <Card
         size="small"
-        style={{ marginBottom: 16, borderRadius: designTokens.radius.md, backgroundColor: 'transparent', boxShadow: 'none', border: 'none' }}
-        styles={{ body: { padding: 0 } }}
+        style={{ marginBottom: 12, borderRadius: designTokens.radius.md, background: 'transparent', padding: 0, border: 'none' }}
+        bodyStyle={{ padding: 0 }}
       >
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <div>
-            <Title level={4} style={{ margin: '0 0 4px', fontSize: 28 }}>Shawn, let's study.</Title>
-            <Text type="secondary">{mission.date}</Text>
-          </div>
-          <Progress
-            type="circle"
-            percent={overallPercent}
-            size={64}
-            strokeColor={rules?.missionComplete ? designTokens.color.success : designTokens.color.primary}
-          />
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Space style={{ width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <Title level={4} style={{ margin: 0 }}>
+              AI Tutor
+            </Title>
+            <Badge
+              count={`${userTurns}/${turnsNeeded} turns`}
+              style={{
+                backgroundColor:
+                  userTurns >= turnsNeeded
+                    ? designTokens.color.success
+                    : designTokens.color.primary,
+              }}
+            />
+          </Space>
+          {userTurns < turnsNeeded && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Chat {turnsNeeded - userTurns} more time
+              {turnsNeeded - userTurns > 1 ? 's' : ''} to complete today&apos;s tutor task
+            </Text>
+          )}
         </Space>
-        {rules?.missionComplete && (
-          <Tag
-            icon={<CheckCircleOutlined />}
-            color="success"
-            style={{ marginTop: 8 }}
-          >
-            Mission complete! +50 XP
-          </Tag>
-        )}
-        {mission.checkInGranted && (
-          <Tag icon={<FireOutlined />} color="warning" style={{ marginTop: 8 }}>
-            Checked in · Streak {user.streak}
-          </Tag>
-        )}
       </Card>
 
-      {mission.tasks.filter((task) => task.type !== 'math').map((task) => {
-        const cfg = TASK_CONFIG[task.type] || TASK_CONFIG.tutor;
-        const meta = task.meta || {};
-        let percent = task.completed ? 100 : 0;
-        let detail = '';
-
-        if (task.type === 'vocab' && meta.passageEn) {
-          let p = 0;
-          if (meta.passageViewed) p += 25;
-          p += Math.min(25, ((Number(meta.readingChatUserTurns) || 0) / 2) * 25);
-          p += Math.min(25, ((meta.learnedWordIds || []).length / 6) * 25);
-          if (meta.applicationComplete) p += 25;
-          percent = task.completed ? 100 : Math.round(p);
-          const t = Number(meta.readingChatUserTurns) || 0;
-          const lw = (meta.learnedWordIds || []).length;
-          detail = `chat ${t}/2+ · words ${lw}/6`;
-        } else if (task.type === 'vocab' && meta.words) {
-          const learned = (meta.learnedWordIds || []).length;
-          const total = meta.words.length;
-          percent = task.completed ? 100 : Math.round((learned / Math.max(1, total)) * 100);
-          detail = `${learned}/${total} words`;
-        }
-        if (task.type === 'tutor') {
-          const turns = meta.turns || 0;
-          percent = task.completed ? 100 : Math.round(Math.min(1, turns / 3) * 100);
-          detail = `${turns}/3 turns`;
-        }
-
-        const taskCardTheme = {
-          radius: task.type === 'vocab'
-            ? designTokens.radius.readingTaskCard
-            : task.type === 'tutor'
-              ? designTokens.radius.tutorTaskCard
-              : designTokens.radius.md,
-          bg: '#fff',
-          border: '1px solid #E3E4E4',
-          borderBottom: '4px solid #E3E4E4',
-          shadow: 'none',
-        };
-
-        return (
-          <Card
-            key={task.id}
-            size="small"
-            hoverable
-            onClick={() => navigate(cfg.link)}
-            style={{
-              marginBottom: 20,
-              borderRadius: taskCardTheme.radius,
-              cursor: 'pointer',
-              boxShadow: taskCardTheme.shadow,
-              backgroundColor: taskCardTheme.bg,
-              borderWidth: '1px 1px 4px 1px',
-              borderStyle: 'solid',
-              borderColor: '#E3E4E4',
-            }}
-            styles={
-              taskCardTheme.bg
-                ? {
-                    body: { backgroundColor: 'transparent', paddingLeft: 20, paddingRight: 20, paddingTop: 20, paddingBottom: 20 },
-                  }
-                : {
-                    body: { paddingLeft: 20, paddingRight: 20, paddingTop: 20, paddingBottom: 20 },
-                  }
-            }
-          >
-            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Space align="start">
-                {taskLeadingVisual(task.type, cfg)}
+      {photoAnalysis && (
+        <Collapse
+          defaultActiveKey={['q']}
+          style={{ marginBottom: 12, borderRadius: designTokens.radius.md }}
+          items={[
+            {
+              key: 'q',
+              label: 'Question from your photo',
+              children: (
                 <div>
-                  <Text strong style={{ fontSize: 18 }}>{cfg.title}</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
-                    {task.completed ? 'Completed ✓' : cfg.desc}
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Original
                   </Text>
-                  {detail && (
-                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                      ({detail})
-                    </Text>
+                  <Paragraph style={{ marginBottom: 8 }}>
+                    {photoAnalysis.originalQuestion}
+                  </Paragraph>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Simplified English
+                  </Text>
+                  <Paragraph style={{ marginBottom: 8 }}>
+                    {photoAnalysis.simplifiedEnglish}
+                  </Paragraph>
+                  {photoAnalysis.chineseExplanation ? (
+                    <>
+                      <Space style={{ marginBottom: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Chinese explanation
+                        </Text>
+                        <Switch
+                          size="small"
+                          checked={showChinese}
+                          onChange={setShowChinese}
+                        />
+                      </Space>
+                      {showChinese && (
+                        <Paragraph style={{ marginBottom: 8 }}>
+                          {photoAnalysis.chineseExplanation}
+                        </Paragraph>
+                      )}
+                    </>
+                  ) : null}
+                  {photoAnalysis.keywords?.length > 0 && (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                        Keywords
+                      </Text>
+                      <Space wrap size={[4, 4]}>
+                        {photoAnalysis.keywords.map((kw, i) => (
+                          <Tag key={i} color="processing" style={{ margin: 0 }}>
+                            {kw.term}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </div>
                   )}
                 </div>
-              </Space>
-              {!task.completed && (
-                <Button
-                  shape="circle"
-                  size="large"
-                  onClick={() => navigate(cfg.link)}
-                  style={{ backgroundColor: cfg.btnColor, color: '#fff', border: 'none', fontWeight: 'bold' }}
-                >
-                  GO
-                </Button>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      <div className="tutor-messages" ref={listRef}>
+        {messages.length === 0 && !loading && (
+          <div className="tutor-welcome">
+            <TutorSessionMascotSvg style={{ width: 64, height: 'auto' }} />
+            <Text strong style={{ marginTop: 12, display: 'block' }}>
+              Hi! Shawn, I'll study with you.
+            </Text>
+            <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
+              Use the camera or upload a photo, or type a question.
+            </Text>
+            <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
+              I'll guide you step by step — I won't give the final answer right away.
+            </Text>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+              alignItems: 'flex-start',
+              marginBottom: 12,
+            }}
+          >
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                flexShrink: 0,
+                ...(msg.role === 'user' ? avatarUserStyle : avatarAiStyle),
+              }}
+            >
+              {msg.role === 'user'
+                ? <UserAvatarSvg style={{ width: 28, height: 28, borderRadius: '50%' }} />
+                : <TutorSessionMascotSvg style={{ width: 22, height: 'auto' }} />}
+            </span>
+            <div
+              style={{
+                maxWidth: '80%',
+                padding: '8px 12px',
+                borderRadius: 16,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontSize: 14,
+                lineHeight: 1.5,
+                ...(msg.role === 'user' ? bubbleUserStyle : bubbleAiStyle),
+              }}
+            >
+              {msg.images?.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                  {msg.images.map((url, j) => (
+                    <img
+                      key={j}
+                      src={url}
+                      alt="uploaded"
+                      style={{ maxHeight: 100, maxWidth: 120, borderRadius: 6, objectFit: 'cover' }}
+                    />
+                  ))}
+                </div>
               )}
-              {task.completed && (
-                <CheckCircleOutlined
-                  style={{ fontSize: 24, color: designTokens.color.success }}
+              {msg.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'flex-start',
+              marginBottom: 12,
+            }}
+          >
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                flexShrink: 0,
+                ...avatarAiStyle,
+              }}
+            >
+              <TutorSessionMascotSvg style={{ width: 22, height: 'auto' }} />
+            </span>
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 16,
+                ...bubbleAiStyle,
+              }}
+            >
+              <Spin size="small" /> <Text type="secondary">Thinking...</Text>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {photoAnalysis && !loading && (
+        <Space wrap style={{ marginBottom: 8 }}>
+          <Button
+            size="small"
+            onClick={() => handleQuickIntent('explain_more', 'Please explain a bit more.')}
+          >
+            Explain more
+          </Button>
+          <Button
+            size="small"
+            onClick={() => handleQuickIntent('dont_know', "I don't know.")}
+          >
+            I don&apos;t know
+          </Button>
+        </Space>
+      )}
+
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        onChange={onCameraChange}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={onFileChange}
+      />
+
+      <div
+        className="tutor-input-bar"
+        style={{ borderTopColor: designTokens.color.border.subtle }}
+      >
+        {pendingImages.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {pendingImages.map((img, idx) => (
+              <div key={idx} style={{ position: 'relative', display: 'inline-block' }}>
+                <img
+                  src={img.previewUrl}
+                  alt="preview"
+                  style={{ height: 80, width: 80, borderRadius: 8, objectFit: 'cover' }}
                 />
-              )}
-            </Space>
-            <Progress
-              percent={percent}
-              showInfo={false}
-              strokeColor={task.completed ? designTokens.color.success : designTokens.color.primary}
-              style={{ marginTop: 8 }}
-              size="small"
+                <CloseCircleFilled
+                  onClick={() => removePendingImage(idx)}
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    fontSize: 16,
+                    color: '#999',
+                    cursor: 'pointer',
+                    background: '#fff',
+                    borderRadius: '50%',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'flex-end', width: '100%' }}>
+          <Button
+            type="text"
+            icon={<AttachIcon />}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            aria-label="Upload image"
+          />
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Input.TextArea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              autoSize={{ minRows: 1, maxRows: 3 }}
+              disabled={loading}
+              style={{ borderRadius: 20, paddingRight: 44, paddingTop: 8 }}
             />
-          </Card>
-        );
-      })}
+            <Button
+              type="primary"
+              shape="circle"
+              icon={<SendOutlined />}
+              onClick={sendMessage}
+              disabled={(!input.trim() && pendingImages.length === 0) || loading}
+              style={{
+                position: 'absolute',
+                right: 4,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 32,
+                height: 32,
+                minWidth: 32,
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
