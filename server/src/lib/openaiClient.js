@@ -465,7 +465,7 @@ Output must follow the JSON schema: original question, simplified English versio
         strict: undefined,
       },
     },
-    max_completion_tokens: 2000,
+    max_completion_tokens: 8000,
   }));
 
   const text = res.choices[0]?.message?.content;
@@ -529,7 +529,7 @@ export async function tutorReply(messages, options = {}) {
     res = await withRetry(() => client.chat.completions.create({
       model,
       messages: [{ role: 'system', content: systemContent }, ...messages],
-      max_completion_tokens: 1024,
+      max_completion_tokens: 4096,
     }));
   } catch (err) {
     const msg =
@@ -574,7 +574,7 @@ export async function simplifySentence(sentence) {
       { role: 'user', content: sentence },
     ],
     response_format: { type: 'json_object' },
-    max_completion_tokens: 800,
+    max_completion_tokens: 4096,
   }));
   const text = res.choices[0]?.message?.content;
   if (!text) {
@@ -729,7 +729,7 @@ export async function readingChatReply(messages, options) {
     res = await withRetry(() => client.chat.completions.create({
       model,
       messages: [{ role: 'system', content: systemContent }, ...messages],
-      max_completion_tokens: 700,
+      max_completion_tokens: 4096,
     }));
   } catch (err) {
     console.error('readingChatReply error details:', JSON.stringify(err?.error || err?.message || err, null, 2));
@@ -823,7 +823,7 @@ export async function readingApplicationFeedback(payload) {
         strict: undefined,
       },
     },
-    max_completion_tokens: 400,
+    max_completion_tokens: 4096,
   }));
   const text = res.choices[0]?.message?.content;
   if (!text) {
