@@ -14,8 +14,6 @@ import {
 import {
   SendOutlined,
   RobotOutlined,
-  CameraOutlined,
-  PaperClipOutlined,
   CloseCircleFilled,
 } from '@ant-design/icons';
 import { api } from '../../api/client';
@@ -23,6 +21,12 @@ import { designTokens } from '../../designTokens';
 import TutorSessionMascotSvg from './TutorSessionMascotSvg';
 import UserAvatarSvg from './UserAvatarSvg';
 import './TutorPage.css';
+
+const AttachIcon = () => (
+  <svg viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+    <path d="M317.76384 959.04a319.872 319.872 0 0 1-225.088-91.264A293.824 293.824 0 0 1 0.00384 652.16c0-84.16 35.52-170.752 92.672-225.92l350.72-338.56c16.32-15.68 50.816-5.12 66.176 9.6 10.432 10.112 17.984 28.096 17.984 42.688 0 4.352-0.64 8.32-1.92 11.84l2.688 1.024-8.704 8.576L169.41184 499.2c-42.176 40.704-66.368 95.36-66.368 149.76 0 52.608 22.976 102.592 66.368 144.512 91.264 88.064 231.424 71.04 305.088 0l394.432-380.672c32.256-31.168 49.344-67.136 49.344-104 0-37.056-17.536-74.368-49.344-105.088-56.896-54.912-131.328-48.576-199.296 17.024L313.73184 565.568c-13.312 12.8-20.672 29.312-20.672 46.4 0 15.04 5.888 29.44 16.192 39.36 26.496 25.6 66.112 17.92 89.088-4.288l329.152-317.568 0.96 0.832c17.728-8.832 46.272 0.96 59.84 14.08 10.368 9.984 17.92 27.904 17.984 42.56a28.8 28.8 0 0 1-8.064 21.376l-324.288 312.96c-114.56 110.656-205.952 55.488-250.24 12.8-15.104-14.656-50.368-54.848-50.368-112.448 0-44.928 21.376-88.384 63.616-129.152l68.032-67.008L594.05184 146.56c107.008-103.232 254.848-110.4 351.616-17.024a246.08 246.08 0 0 1 76.48 178.24 246.08 246.08 0 0 1-76.48 178.304l-395.52 381.76c-58.432 56.32-143.936 91.264-232.384 91.264z" />
+  </svg>
+);
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -455,14 +459,7 @@ export default function TutorPage() {
         <div style={{ display: 'flex', alignItems: 'flex-end', width: '100%' }}>
           <Button
             type="text"
-            icon={<CameraOutlined />}
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={loading}
-            aria-label="Take photo"
-          />
-          <Button
-            type="text"
-            icon={<PaperClipOutlined />}
+            icon={<AttachIcon />}
             onClick={() => fileInputRef.current?.click()}
             disabled={loading}
             aria-label="Upload image"
