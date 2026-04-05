@@ -1,0 +1,31 @@
+{
+  "short_name": "StudyBridge",
+  "name": "StudyBridge AI — Your Study Buddy",
+  "description": "AI-powered homework help, vocabulary building, and guided tutoring for ESL students",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0055ff",
+  "background_color": "#f5f5f5",
+  "categories": ["education"],
+  "lang": "en"
+}
