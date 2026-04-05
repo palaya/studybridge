@@ -41,6 +41,31 @@ function geminiSafeFetch(url, init) {
   return fetch(url, init);
 }
 
+/**
+ * Retry wrapper with exponential backoff for Gemini 429 rate limits.
+ * @param {() => Promise<T>} fn
+ * @param {number} retries
+ * @param {number} baseDelay ms
+ * @returns {Promise<T>}
+ * @template T
+ */
+async function withRetry(fn, retries = 3, baseDelay = 2000) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err?.status ?? err?.error?.status;
+      if (status === 429 && i < retries) {
+        const delay = baseDelay * Math.pow(2, i);
+        console.warn(`Gemini 429 rate limit, retrying in ${delay}ms (attempt ${i + 1}/${retries})...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export function getOpenAI() {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) {
@@ -422,7 +447,7 @@ Output must follow the JSON schema: original question, simplified English versio
     },
   ];
 
-  const res = await client.chat.completions.create({
+  const res = await withRetry(() => client.chat.completions.create({
     model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     messages: [
       {
@@ -441,7 +466,7 @@ Output must follow the JSON schema: original question, simplified English versio
       },
     },
     max_completion_tokens: 2000,
-  });
+  }));
 
   const text = res.choices[0]?.message?.content;
   if (!text) {
@@ -501,11 +526,11 @@ export async function tutorReply(messages, options = {}) {
   const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   let res;
   try {
-    res = await client.chat.completions.create({
+    res = await withRetry(() => client.chat.completions.create({
       model,
       messages: [{ role: 'system', content: systemContent }, ...messages],
       max_completion_tokens: 1024,
-    });
+    }));
   } catch (err) {
     const msg =
       err?.message ||
@@ -542,7 +567,7 @@ export async function simplifySentence(sentence) {
       chineseSummary: '演示模式',
     };
   }
-  const res = await client.chat.completions.create({
+  const res = await withRetry(() => client.chat.completions.create({
     model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     messages: [
       { role: 'system', content: SIMPLIFY_SYSTEM },
@@ -550,7 +575,7 @@ export async function simplifySentence(sentence) {
     ],
     response_format: { type: 'json_object' },
     max_completion_tokens: 800,
-  });
+  }));
   const text = res.choices[0]?.message?.content;
   if (!text) {
     throw new Error('Empty simplify response');
@@ -701,11 +726,11 @@ export async function readingChatReply(messages, options) {
   const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   let res;
   try {
-    res = await client.chat.completions.create({
+    res = await withRetry(() => client.chat.completions.create({
       model,
       messages: [{ role: 'system', content: systemContent }, ...messages],
       max_completion_tokens: 700,
-    });
+    }));
   } catch (err) {
     console.error('readingChatReply error details:', JSON.stringify(err?.error || err?.message || err, null, 2));
     const msg =
@@ -780,7 +805,7 @@ export async function readingApplicationFeedback(payload) {
       ? `Passage context: ${payload.passageSnippet}\nCorrect blank answer (for grading): ${payload.expectedAnswer}\nStudent wrote: ${ans}\nIs the student's answer acceptable (synonyms, minor spelling OK)? Respond with JSON only.`
       : `Passage context: ${payload.passageSnippet}\nStudent must use this word correctly: ${payload.targetWord}\nStudent sentence: ${ans}\nJudge if the word is used in a reasonable English sentence. Respond with JSON only.`;
 
-  const res = await client.chat.completions.create({
+  const res = await withRetry(() => client.chat.completions.create({
     model,
     messages: [
       {
@@ -799,7 +824,7 @@ export async function readingApplicationFeedback(payload) {
       },
     },
     max_completion_tokens: 400,
-  });
+  }));
   const text = res.choices[0]?.message?.content;
   if (!text) {
     throw new Error('Empty application feedback');
